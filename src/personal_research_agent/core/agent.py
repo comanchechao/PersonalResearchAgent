@@ -14,8 +14,8 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.tools import BaseTool
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 from langchain_openai import ChatOpenAI
-from langchain.callbacks.base import BaseCallbackHandler
-from langchain.schema import LLMResult
+from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.outputs import LLMResult
 
 from .state import AgentState, TaskStatus, ResearchTask
 from .memory import AgentMemory
@@ -100,6 +100,26 @@ class PersonalResearchAgent:
             api_key=llm_kwargs.get("api_key", "lm-studio"),  # LM Studio doesn't require real API key
             streaming=True
         )
+
+        # Health check: try a tiny prompt with retry/backoff
+        async def _check():
+            try:
+                _ = await self.llm.ainvoke("ping")
+                return True
+            except Exception:
+                return False
+
+        async def _retry_check(retries: int = 2, delay: float = 0.8) -> bool:
+            for i in range(retries + 1):
+                ok = await _check()
+                if ok:
+                    return True
+                if i < retries:
+                    await asyncio.sleep(delay)
+            return False
+
+        # Launch background health check; don't block construction
+        asyncio.get_event_loop().create_task(_retry_check())
     
     def _init_tools(self) -> None:
         """Initialize research tools."""
@@ -243,12 +263,20 @@ Remember: You have access to web search, document processing, and summarization 
                 enhanced_query = f"{enhanced_query}\n\nAdditional information:\n" + "\n\n".join(tool_results)
             
             # Execute the chain
-            result = await self.agent_chain.ainvoke({
-                "input": enhanced_query,
-                "chat_history": formatted_history
-            })
-            
-            return {"output": result.content}
+            try:
+                result = await self.agent_chain.ainvoke({
+                    "input": enhanced_query,
+                    "chat_history": formatted_history
+                })
+                return {"output": result.content}
+            except Exception as e:
+                if "503" in str(e) or "connection" in str(e).lower():
+                    return {"output": (
+                        "I'm having trouble reaching the local model. "
+                        "Please ensure LM Studio is running, the model is loaded, "
+                        "and the server is started on http://localhost:1234/v1."
+                    )}
+                raise
             
         except Exception as e:
             self.logger.error(f"Agent execution failed: {e}")
@@ -278,12 +306,22 @@ Remember: You have access to web search, document processing, and summarization 
                 formatted_history.append(AIMessage(content=turn["ai_message"]))
             
             # Execute the chain
-            result = await self.agent_chain.ainvoke({
-                "input": message,
-                "chat_history": formatted_history
-            })
-            
-            response = result.content
+            try:
+                result = await self.agent_chain.ainvoke({
+                    "input": message,
+                    "chat_history": formatted_history
+                })
+                response = result.content
+            except Exception as e:
+                # Friendly error for common LM Studio issues
+                if "503" in str(e) or "connection" in str(e).lower():
+                    response = (
+                        "I'm having trouble reaching the local model. "
+                        "Please ensure LM Studio is running, the model is loaded, "
+                        "and the server is started on http://localhost:1234/v1."
+                    )
+                else:
+                    raise
             
             # Add AI response to state and memory
             self.state.add_message("assistant", response)

@@ -10,11 +10,10 @@ import json
 import hashlib
 from pathlib import Path
 
-from langchain.memory import ConversationBufferWindowMemory, ConversationSummaryBufferMemory
-from langchain.schema import BaseMessage, HumanMessage, AIMessage
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from langchain_core.vectorstores import VectorStore
-from langchain_community.vectorstores import Chroma
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_chroma import Chroma
+from langchain_huggingface import HuggingFaceEmbeddings
 
 from ..config import get_settings
 
@@ -143,16 +142,8 @@ class AgentMemory:
     
     def _init_conversation_memory(self) -> None:
         """Initialize conversation memory."""
-        # Buffer memory for recent conversations
-        self.conversation_buffer = ConversationBufferWindowMemory(
-            k=10,  # Keep last 10 exchanges
-            return_messages=True,
-            memory_key="chat_history"
-        )
-        
-        # Summary memory for longer conversations
-        # Note: This would need an LLM instance for summarization
-        # We'll implement a simple version for now
+        # Simple in-memory conversation storage
+        self.conversation_messages: List[BaseMessage] = []
         self.conversation_summary: List[str] = []
     
     def _init_vector_memory(self) -> None:
@@ -177,9 +168,9 @@ class AgentMemory:
     
     async def add_conversation_turn(self, human_message: str, ai_message: str, metadata: Optional[Dict[str, Any]] = None) -> None:
         """Add a conversation turn to memory."""
-        # Add to buffer memory
-        self.conversation_buffer.chat_memory.add_user_message(human_message)
-        self.conversation_buffer.chat_memory.add_ai_message(ai_message)
+        # Add to in-memory conversation storage
+        self.conversation_messages.append(HumanMessage(content=human_message))
+        self.conversation_messages.append(AIMessage(content=ai_message))
         
         # Store in persistent memory
         turn_data = {
@@ -202,7 +193,7 @@ class AgentMemory:
                         "type": "conversation",
                         "session_id": self.session_id,
                         "timestamp": datetime.now().isoformat(),
-                        **metadata or {}
+                        **(metadata or {})
                     }]
                 )
             except Exception as e:
@@ -309,8 +300,8 @@ class AgentMemory:
     
     async def get_conversation_history(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Get recent conversation history."""
-        # Get from buffer memory
-        messages = self.conversation_buffer.chat_memory.messages[-limit*2:]  # *2 because each turn has 2 messages
+        # Get from in-memory conversation storage
+        messages = self.conversation_messages[-limit*2:]  # *2 because each turn has 2 messages
         
         history = []
         for i in range(0, len(messages), 2):
@@ -320,7 +311,7 @@ class AgentMemory:
                 history.append({
                     "human_message": human_msg.content if hasattr(human_msg, 'content') else str(human_msg),
                     "ai_message": ai_msg.content if hasattr(ai_msg, 'content') else str(ai_msg),
-                    "timestamp": getattr(human_msg, 'timestamp', datetime.now().isoformat())
+                    "timestamp": datetime.now().isoformat()
                 })
         
         return history[-limit:]  # Return last 'limit' turns
@@ -338,8 +329,8 @@ class AgentMemory:
     
     async def clear_session_memory(self) -> None:
         """Clear memory for the current session."""
-        # Clear conversation buffer
-        self.conversation_buffer.clear()
+        # Clear conversation messages
+        self.conversation_messages.clear()
         
         # Clear caches
         self._short_term_cache.clear()
@@ -351,7 +342,7 @@ class AgentMemory:
         stats = {
             "session_id": self.session_id,
             "user_id": self.user_id,
-            "conversation_turns": len(self.conversation_buffer.chat_memory.messages) // 2,
+            "conversation_turns": len(self.conversation_messages) // 2,
             "short_term_cache_size": len(self._short_term_cache),
             "user_preferences_cached": len(self._user_preferences_cache),
             "vector_store_available": self.vector_store is not None
@@ -367,6 +358,6 @@ class AgentMemory:
         
         return stats
     
-    def get_langchain_memory(self) -> ConversationBufferWindowMemory:
+    def get_langchain_memory(self) -> List[BaseMessage]:
         """Get the LangChain memory object for use in chains."""
-        return self.conversation_buffer
+        return self.conversation_messages

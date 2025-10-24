@@ -6,13 +6,14 @@ Provides web search capabilities using multiple search providers.
 import asyncio
 import aiohttp
 import json
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any, Union, Type
 from datetime import datetime
 import logging
 
-from langchain.tools import BaseTool
+from langchain_core.tools import BaseTool
 from langchain_core.callbacks import CallbackManagerForToolRun
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
+from typing import Type, Any
 
 from ..config import get_settings
 
@@ -148,13 +149,23 @@ class WebSearchTool(BaseTool):
     Input should be a clear search query. The tool will return relevant web results
     with titles, URLs, and snippets.
     """
-    args_schema = WebSearchInput
+    args_schema: Type[BaseModel] = WebSearchInput
+    _initialized: bool = PrivateAttr(default=False)
+    _settings: Any = PrivateAttr(default=None)
+    _providers: List[WebSearchProvider] = PrivateAttr(default_factory=list)
+    _logger: Any = PrivateAttr(default=None)
     
-    def __init__(self):
-        super().__init__()
-        self.settings = get_settings()
-        self.providers = self._init_providers()
-        self.logger = logging.getLogger(__name__)
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Private attributes are declared via PrivateAttr above
+    
+    def _ensure_initialized(self):
+        """Lazy initialization of tool components."""
+        if not self._initialized:
+            self._settings = get_settings()
+            self._providers = self._init_providers()
+            self._logger = logging.getLogger(__name__)
+            self._initialized = True
     
     def _init_providers(self) -> List[WebSearchProvider]:
         """Initialize search providers."""
@@ -196,11 +207,12 @@ class WebSearchTool(BaseTool):
     ) -> str:
         """Execute web search asynchronously."""
         try:
-            self.logger.info(f"Searching web for: {query}")
+            self._ensure_initialized()
+            self._logger.info(f"Searching web for: {query}")
             
             # Try providers in order until one succeeds
             results = []
-            for provider in self.providers:
+            for provider in self._providers:
                 try:
                     results = await provider.search(
                         query=query,
@@ -209,10 +221,10 @@ class WebSearchTool(BaseTool):
                         time_range=time_range
                     )
                     if results:
-                        self.logger.info(f"Got {len(results)} results from {provider.name}")
+                        self._logger.info(f"Got {len(results)} results from {provider.name}")
                         break
                 except Exception as e:
-                    self.logger.warning(f"Provider {provider.name} failed: {e}")
+                    self._logger.warning(f"Provider {provider.name} failed: {e}")
                     continue
             
             if not results:
@@ -223,7 +235,7 @@ class WebSearchTool(BaseTool):
             return formatted_results
             
         except Exception as e:
-            self.logger.error(f"Web search failed: {e}")
+            self._logger.error(f"Web search failed: {e}")
             return f"Web search failed: {str(e)}"
     
     def _format_results(self, results: List[SearchResult], query: str) -> str:
@@ -268,13 +280,13 @@ class WebSearchTool(BaseTool):
     
     async def _search_single_query(self, query: str, num_results: int) -> List[SearchResult]:
         """Search a single query."""
-        for provider in self.providers:
+        for provider in self._providers:
             try:
                 results = await provider.search(query, num_results)
                 if results:
                     return results
             except Exception as e:
-                self.logger.warning(f"Provider {provider.name} failed for '{query}': {e}")
+                self._logger.warning(f"Provider {provider.name} failed for '{query}': {e}")
                 continue
         
         return []

@@ -8,15 +8,15 @@ import aiofiles
 import tempfile
 import mimetypes
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Union, BinaryIO
+from typing import Dict, List, Optional, Any, Union, BinaryIO, Type
 from datetime import datetime
 import logging
 
-from langchain.tools import BaseTool
+from langchain_core.tools import BaseTool
 from langchain_core.callbacks import CallbackManagerForToolRun
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.docstore.document import Document
-from pydantic import BaseModel, Field
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_core.documents import Document
+from pydantic import BaseModel, Field, PrivateAttr
 
 # Document processing libraries
 import pypdf
@@ -69,17 +69,26 @@ class DocumentProcessor(BaseTool):
     Input should specify the document source (file path, URL, or text) and any processing options.
     The tool will return structured content, metadata, and analysis.
     """
-    args_schema = DocumentInput
+    args_schema: Type[BaseModel] = DocumentInput
+    _initialized: bool = PrivateAttr(default=False)
+    _settings: Any = PrivateAttr(default=None)
+    _text_splitter: Any = PrivateAttr(default=None)
+    _logger: Any = PrivateAttr(default=None)
     
-    def __init__(self):
-        super().__init__()
-        self.settings = get_settings()
-        self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=self.settings.vector_db.chunk_size,
-            chunk_overlap=self.settings.vector_db.chunk_overlap,
-            separators=["\n\n", "\n", ". ", " ", ""]
-        )
-        self.logger = logging.getLogger(__name__)
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+    
+    def _ensure_initialized(self):
+        """Lazy initialization of tool components."""
+        if not self._initialized:
+            self._settings = get_settings()
+            self._text_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=self._settings.vector_db.chunk_size,
+                chunk_overlap=self._settings.vector_db.chunk_overlap,
+                separators=["\n\n", "\n", ". ", " ", ""]
+            )
+            self._logger = logging.getLogger(__name__)
+            self._initialized = True
     
     def _run(
         self,
@@ -112,7 +121,8 @@ class DocumentProcessor(BaseTool):
         processing_options = processing_options or {}
         
         try:
-            self.logger.info(f"Processing document from: {source[:100]}...")
+            self._ensure_initialized()
+            self._logger.info(f"Processing document from: {source[:100]}...")
             
             # Detect source type if auto
             if source_type == "auto":
@@ -135,11 +145,11 @@ class DocumentProcessor(BaseTool):
             # Format result for the agent
             result = self._format_result(processed_doc)
             
-            self.logger.info(f"Document processed successfully in {processing_time:.2f}s")
+            self._logger.info(f"Document processed successfully in {processing_time:.2f}s")
             return result
             
         except Exception as e:
-            self.logger.error(f"Document processing failed: {e}")
+            self._logger.error(f"Document processing failed: {e}")
             return f"Document processing failed: {str(e)}"
     
     def _detect_source_type(self, source: str) -> str:
@@ -199,8 +209,8 @@ class DocumentProcessor(BaseTool):
         
         # Check file size
         file_size_mb = file_path.stat().st_size / (1024 * 1024)
-        if file_size_mb > self.settings.research.max_document_size_mb:
-            raise ValueError(f"File too large: {file_size_mb:.1f}MB (max: {self.settings.research.max_document_size_mb}MB)")
+        if file_size_mb > self._settings.research.max_document_size_mb:
+            raise ValueError(f"File too large: {file_size_mb:.1f}MB (max: {self._settings.research.max_document_size_mb}MB)")
         
         # Determine file type
         mime_type, _ = mimetypes.guess_type(str(file_path))
@@ -270,7 +280,7 @@ class DocumentProcessor(BaseTool):
                         content += f"\n--- Page {page_num + 1} ---\n"
                         content += page_text
                 except Exception as e:
-                    self.logger.warning(f"Could not extract text from page {page_num + 1}: {e}")
+                    self._logger.warning(f"Could not extract text from page {page_num + 1}: {e}")
         
         return content
     
@@ -355,7 +365,7 @@ class DocumentProcessor(BaseTool):
         # Split into chunks
         chunks = []
         if content:
-            text_chunks = self.text_splitter.split_text(content)
+            text_chunks = self._text_splitter.split_text(content)
             for i, chunk in enumerate(text_chunks):
                 chunks.append({
                     "chunk_id": i,

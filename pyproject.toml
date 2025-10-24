@@ -41,6 +41,8 @@ dependencies = [
     "chromadb>=0.5.0",
     "sentence-transformers>=3.0.0",
     "faiss-cpu>=1.8.0",
+    "langchain-chroma>=0.1.0",
+    "langchain-huggingface>=0.1.0",
     
     # Web and Document Processing
     "requests>=2.32.0",

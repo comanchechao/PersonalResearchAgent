@@ -19,11 +19,11 @@ async def test_agent_initialization():
     print("Testing agent initialization...")
     try:
         agent = PersonalResearchAgent()
-        print(f"✓ Agent initialized successfully")
+        print(f"[OK] Agent initialized successfully")
         print(f"  Session ID: {agent.session_id}")
         return agent
     except Exception as e:
-        print(f"✗ Agent initialization failed: {e}")
+        print(f"[ERROR] Agent initialization failed: {e}")
         return None
 
 
@@ -32,13 +32,13 @@ async def test_configuration():
     print("\nTesting configuration...")
     try:
         settings = get_settings()
-        print(f"✓ Configuration loaded")
+        print(f"[OK] Configuration loaded")
         print(f"  LLM Model: {settings.llm.model_name}")
         print(f"  API Base: {settings.llm.api_base}")
         print(f"  Temperature: {settings.llm.temperature}")
         return True
     except Exception as e:
-        print(f"✗ Configuration failed: {e}")
+        print(f"[ERROR] Configuration failed: {e}")
         return False
 
 
@@ -48,12 +48,12 @@ async def test_simple_chat():
     try:
         agent = PersonalResearchAgent()
         response = await agent.chat("Hello, can you help me with research?")
-        print(f"✓ Chat test successful")
+        print(f"[OK] Chat test successful")
         print(f"  Response length: {len(response)} characters")
         print(f"  Response preview: {response[:100]}...")
         return True
     except Exception as e:
-        print(f"✗ Chat test failed: {e}")
+        print(f"[ERROR] Chat test failed: {e}")
         print("  Make sure LM Studio is running on localhost:1234")
         return False
 
@@ -66,15 +66,15 @@ async def test_research_functionality():
         result = await agent.research("What is artificial intelligence?")
         
         if "error" in result:
-            print(f"✗ Research failed: {result['error']}")
+            print(f"[ERROR] Research failed: {result['error']}")
             return False
         else:
-            print(f"✓ Research test successful")
+            print(f"[OK] Research test successful")
             print(f"  Task ID: {result['task_id']}")
             print(f"  Response preview: {result['result']['output'][:100]}...")
             return True
     except Exception as e:
-        print(f"✗ Research test failed: {e}")
+        print(f"[ERROR] Research test failed: {e}")
         return False
 
 
@@ -86,25 +86,25 @@ async def test_tools():
     try:
         from personal_research_agent.tools import WebSearchTool
         search_tool = WebSearchTool()
-        print("✓ WebSearchTool imported successfully")
+        print("[OK] WebSearchTool imported successfully")
     except Exception as e:
-        print(f"✗ WebSearchTool failed: {e}")
+        print(f"[ERROR] WebSearchTool failed: {e}")
     
     # Test document processor
     try:
         from personal_research_agent.tools import DocumentProcessor
         doc_tool = DocumentProcessor()
-        print("✓ DocumentProcessor imported successfully")
+        print("[OK] DocumentProcessor imported successfully")
     except Exception as e:
-        print(f"✗ DocumentProcessor failed: {e}")
+        print(f"[ERROR] DocumentProcessor failed: {e}")
     
     # Test summarizer
     try:
         from personal_research_agent.tools import SummarizerTool
         summary_tool = SummarizerTool()
-        print("✓ SummarizerTool imported successfully")
+        print("[OK] SummarizerTool imported successfully")
     except Exception as e:
-        print(f"✗ SummarizerTool failed: {e}")
+        print(f"[ERROR] SummarizerTool failed: {e}")
 
 
 async def main():
@@ -115,13 +115,13 @@ async def main():
     # Test configuration first
     config_ok = await test_configuration()
     if not config_ok:
-        print("\n❌ Configuration test failed. Cannot continue.")
+        print("\n[FAIL] Configuration test failed. Cannot continue.")
         return
     
     # Test agent initialization
     agent = await test_agent_initialization()
     if not agent:
-        print("\n❌ Agent initialization failed. Cannot continue.")
+        print("\n[FAIL] Agent initialization failed. Cannot continue.")
         return
     
     # Test tools
@@ -135,19 +135,19 @@ async def main():
     
     print("\n" + "=" * 40)
     print("Test Summary:")
-    print(f"Configuration: ✓")
-    print(f"Agent Init: ✓")
-    print(f"Tools: ✓")
-    print(f"Chat: {'✓' if chat_ok else '✗'}")
-    print(f"Research: {'✓' if research_ok else '✗'}")
+    print(f"Configuration: [OK]")
+    print(f"Agent Init: [OK]")
+    print(f"Tools: [OK]")
+    print(f"Chat: {'[OK]' if chat_ok else '[ERROR]'}")
+    print(f"Research: {'[OK]' if research_ok else '[ERROR]'}")
     
     if chat_ok and research_ok:
-        print("\n🎉 All tests passed! Your setup is working correctly.")
+        print("\n[SUCCESS] All tests passed! Your setup is working correctly.")
         print("\nNext steps:")
         print("1. Run interactive mode: python -m personal_research_agent.cli interactive")
         print("2. Try the examples: python examples/basic_usage.py")
     else:
-        print("\n⚠️  Some tests failed. Check that:")
+        print("\n[WARNING] Some tests failed. Check that:")
         print("1. LM Studio is running on localhost:1234")
         print("2. Qwen 2.5 Coder model is loaded in LM Studio")
         print("3. All dependencies are installed: pip install -e .")

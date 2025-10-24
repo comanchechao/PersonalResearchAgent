@@ -4,16 +4,16 @@ Provides text summarization and analysis capabilities using the local LLM.
 """
 
 import asyncio
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any, Union, Type
 from datetime import datetime
 import logging
 
-from langchain.tools import BaseTool
+from langchain_core.tools import BaseTool
 from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.prompts import PromptTemplate
 from langchain_openai import ChatOpenAI
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from pydantic import BaseModel, Field
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from pydantic import BaseModel, Field, PrivateAttr
 
 from ..config import get_settings
 
@@ -59,26 +59,37 @@ class SummarizerTool(BaseTool):
     Input should include the text to summarize and the desired summary type.
     The tool will return a structured summary with metadata.
     """
-    args_schema = SummarizerInput
+    args_schema: Type[BaseModel] = SummarizerInput
+    _initialized: bool = PrivateAttr(default=False)
+    _settings: Any = PrivateAttr(default=None)
+    _llm: Any = PrivateAttr(default=None)
+    _prompts: dict = PrivateAttr(default_factory=dict)
+    _text_splitter: Any = PrivateAttr(default=None)
+    _logger: Any = PrivateAttr(default=None)
     
-    def __init__(self):
-        super().__init__()
-        self.settings = get_settings()
-        self._init_llm()
-        self._init_prompts()
-        self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=2000,  # Smaller chunks for summarization
-            chunk_overlap=200,
-            separators=["\n\n", "\n", ". ", " ", ""]
-        )
-        self.logger = logging.getLogger(__name__)
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+    
+    def _ensure_initialized(self):
+        """Lazy initialization of tool components."""
+        if not self._initialized:
+            self._settings = get_settings()
+            self._init_llm()
+            self._init_prompts()
+            self._text_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=2000,  # Smaller chunks for summarization
+                chunk_overlap=200,
+                separators=["\n\n", "\n", ". ", " ", ""]
+            )
+            self._logger = logging.getLogger(__name__)
+            self._initialized = True
     
     def _init_llm(self) -> None:
         """Initialize the language model for summarization."""
-        llm_kwargs = self.settings.get_llm_kwargs()
+        llm_kwargs = self._settings.get_llm_kwargs()
         
         # Use a lower temperature for more focused summaries
-        self.llm = ChatOpenAI(
+        self._llm = ChatOpenAI(
             model=llm_kwargs["model"],
             temperature=0.3,  # Lower temperature for more focused output
             max_tokens=llm_kwargs["max_tokens"],
@@ -89,7 +100,7 @@ class SummarizerTool(BaseTool):
     
     def _init_prompts(self) -> None:
         """Initialize summarization prompts."""
-        self.prompts = {
+        self._prompts = {
             "general": PromptTemplate(
                 input_variables=["text", "max_length"],
                 template="""
@@ -190,7 +201,8 @@ Focused summary:
         focus_areas = focus_areas or []
         
         try:
-            self.logger.info(f"Summarizing {len(text)} characters with type: {summary_type}")
+            self._ensure_initialized()
+            self._logger.info(f"Summarizing {len(text)} characters with type: {summary_type}")
             
             # Handle empty or very short text
             if not text or len(text.strip()) < 50:
@@ -209,25 +221,25 @@ Focused summary:
             # Format result for the agent
             result = self._format_result(summary_result)
             
-            self.logger.info(f"Summarization completed in {processing_time:.2f}s")
+            self._logger.info(f"Summarization completed in {processing_time:.2f}s")
             return result
             
         except Exception as e:
-            self.logger.error(f"Summarization failed: {e}")
+            self._logger.error(f"Summarization failed: {e}")
             return f"Summarization failed: {str(e)}"
     
     async def _summarize_single_text(self, text: str, summary_type: str, max_length: int, focus_areas: List[str]) -> SummaryResult:
         """Summarize a single text chunk."""
         # Select appropriate prompt
         if focus_areas and summary_type == "general":
-            prompt_template = self.prompts["focused"]
+            prompt_template = self._prompts["focused"]
             prompt_input = {
                 "text": text,
                 "max_length": max_length,
                 "focus_areas": ", ".join(focus_areas)
             }
         else:
-            prompt_template = self.prompts.get(summary_type, self.prompts["general"])
+            prompt_template = self._prompts.get(summary_type, self._prompts["general"])
             prompt_input = {
                 "text": text,
                 "max_length": max_length
@@ -235,7 +247,7 @@ Focused summary:
         
         # Generate summary
         prompt = prompt_template.format(**prompt_input)
-        response = await self.llm.ainvoke(prompt)
+        response = await self._llm.ainvoke(prompt)
         summary = response.content.strip()
         
         # Extract key topics (simple keyword extraction)
@@ -263,7 +275,7 @@ Focused summary:
     async def _summarize_long_text(self, text: str, summary_type: str, max_length: int, focus_areas: List[str]) -> SummaryResult:
         """Summarize long text by chunking and combining summaries."""
         # Split text into chunks
-        chunks = self.text_splitter.split_text(text)
+        chunks = self._text_splitter.split_text(text)
         
         # Summarize each chunk
         chunk_summaries = []
@@ -274,7 +286,7 @@ Focused summary:
                 chunk_result = await self._summarize_single_text(chunk, summary_type, chunk_max_length, focus_areas)
                 chunk_summaries.append(chunk_result.summary)
             except Exception as e:
-                self.logger.warning(f"Failed to summarize chunk {i}: {e}")
+                self._logger.warning(f"Failed to summarize chunk {i}: {e}")
                 continue
         
         if not chunk_summaries:
@@ -355,7 +367,7 @@ Focused summary:
                 result = await task
                 results.append(result)
             except Exception as e:
-                self.logger.error(f"Failed to summarize text: {e}")
+                self._logger.error(f"Failed to summarize text: {e}")
                 # Create error result
                 error_result = SummaryResult(
                     summary=f"Summarization failed: {str(e)}",
@@ -373,7 +385,7 @@ Focused summary:
     
     def get_supported_summary_types(self) -> List[str]:
         """Get list of supported summary types."""
-        return list(self.prompts.keys())
+        return list(self._prompts.keys())
 
 
 # Convenience function for direct usage
