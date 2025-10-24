@@ -51,14 +51,17 @@ def interactive(
     setup_logging(verbose)
     
     console.print(Panel.fit(
-        "[bold blue]Personal Research Agent[/bold blue]\n"
-        "AI-powered research assistant using LangChain and local LLMs\n\n"
-        "Commands:\n"
-        "• Type your research questions naturally\n"
-        "• '/help' - Show available commands\n"
-        "• '/settings' - View/modify settings\n"
-        "• '/history' - View research history\n"
-        "• '/clear' - Clear current session\n"
+        "[bold blue]Personal Research Agent[/bold blue]\\n"
+        "AI-powered research assistant using LangChain and local LLMs\\n\\n"
+        "Commands:\\n"
+        "• Type your research questions naturally\\n"
+        "• '/help'     - Show available commands\\n"
+        "• '/settings' - View/modify settings\\n"
+        "• '/history'  - View research history\\n"
+        "• '/stats'    - Show session statistics\\n"
+        "• '/tools'    - Show active tools & components\\n"
+        "• '/about'    - About (stack & design)\\n"
+        "• '/clear'    - Clear current session\\n"
         "• '/quit' or Ctrl+C - Exit",
         title="Welcome"
     ))
@@ -144,6 +147,12 @@ async def _handle_command(command: str, agent: PersonalResearchAgent) -> bool:
     elif command == '/stats':
         await _show_stats(agent)
     
+    elif command == '/about':
+        _show_about()
+    
+    elif command == '/tools':
+        await _show_tools(agent)
+    
     else:
         console.print(f"[red]Unknown command:[/red] {command}")
         console.print("Type '/help' for available commands")
@@ -161,6 +170,8 @@ def _show_help() -> None:
 [cyan]/history[/cyan] - View research history
 [cyan]/clear[/cyan] - Clear current session
 [cyan]/stats[/cyan] - Show session statistics
+[cyan]/about[/cyan] - About this project (stack & design)
+[cyan]/tools[/cyan] - Show active tools and system components
 [cyan]/quit[/cyan] - Exit the application
 
 [bold]Research Tips:[/bold]
@@ -253,6 +264,52 @@ async def _show_stats(agent: PersonalResearchAgent) -> None:
         console.print(f"[red]Error retrieving stats:[/red] {str(e)}")
 
 
+def _show_about() -> None:
+    """Show about / stack information."""
+    md = """
+[bold]Personal Research Agent[/bold]
+
+Elegant, local-first research assistant.
+
+[bold]Stack:[/bold]
+- LangChain (core, prompts, tools)
+- langchain_chroma (vector store)
+- langchain_huggingface (embeddings)
+- Typer + Rich (CLI)
+- LM Studio (OpenAI-compatible local server)
+
+[bold]Design goals:[/bold]
+- Minimal, teachable, robust
+- Clear memory model + optional tools
+- Friendly error messaging & health checks
+"""
+    console.print(Panel(Markdown(md), title="About", border_style="cyan"))
+
+
+async def _show_tools(agent: PersonalResearchAgent) -> None:
+    """Show active tools and components used/not used."""
+    table = Table(title="Tools & Components")
+    table.add_column("Component", style="cyan")
+    table.add_column("Status", style="green")
+    table.add_column("Notes", style="magenta")
+
+    # Tools (constructed at startup)
+    active_tool_names = [t.name if hasattr(t, 'name') else t.__class__.__name__ for t in getattr(agent, 'tools', [])]
+    table.add_row("Web Search Tool", "Active" if any("web_search" in n for n in active_tool_names) else "—", "DuckDuckGo + mock fallback")
+    table.add_row("Document Processor", "Active" if any("document_processor" in n for n in active_tool_names) else "—", "PDF/DOCX/MD/HTML/TXT")
+    table.add_row("Summarizer", "Active" if any("summarizer" in n for n in active_tool_names) else "—", "Multiple summary styles")
+
+    # Memory
+    mem_stats = await agent.get_memory_stats()
+    table.add_row("Conversation Memory", "Active", f"Turns: {mem_stats.get('conversation_turns', 0)}")
+    table.add_row("Vector Store (Chroma)", "Active" if mem_stats.get('vector_store_available') else "—", f"Docs: {mem_stats.get('vector_store_documents', 'N/A')}")
+
+    # LLM
+    settings = get_settings()
+    table.add_row("LLM (LM Studio)", "Configured", f"Model: {settings.llm.model_name}")
+
+    console.print(table)
+
 async def _process_research_query(agent: PersonalResearchAgent, query: str) -> None:
     """Process a research query and display results."""
     with Progress(
@@ -280,6 +337,35 @@ async def _process_research_query(agent: PersonalResearchAgent, query: str) -> N
                     border_style="green"
                 ))
                 
+                # Show tools & model info
+                try:
+                    settings = get_settings()
+                    tool_table = Table(title="Tools & Model", show_header=True, header_style="bold cyan")
+                    tool_table.add_column("Tool", style="cyan")
+                    tool_table.add_column("Used", style="green")
+                    friendly = {
+                        "web_search": "Web Search",
+                        "document_processor": "Document Processor",
+                        "summarizer": "Summarizer",
+                    }
+                    used_list = getattr(agent.state, "tools_used", []) or []
+                    for key, label in friendly.items():
+                        status = "Yes" if any(key in n for n in used_list) else "No"
+                        tool_table.add_row(label, status)
+                    tool_panel_md = (
+                        f"**LLM Model:** {settings.llm.model_name}\n\n"
+                        f"**API Base:** {settings.llm.api_base or 'Not set'}\n"
+                    )
+                    console.print(Panel.fit(
+                        Markdown(tool_panel_md),
+                        title="Model",
+                        border_style="cyan"
+                    ))
+                    console.print(tool_table)
+                except Exception:
+                    # Non-fatal; continue without tools panel
+                    pass
+
                 # Show metadata
                 console.print(f"\n[dim]Task ID: {result['task_id']} | "
                             f"Session: {result['session_id'][:8]}... | "

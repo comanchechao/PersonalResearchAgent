@@ -30,6 +30,7 @@ research-agent research "What changed in Python 3.13?"
 ```
 
 LM Studio setup:
+
 - Open LM Studio → load Qwen 2.5 Coder 7B Instruct → Start Server (default `http://localhost:1234/v1`).
 
 ---
@@ -37,15 +38,22 @@ LM Studio setup:
 ## Tools & Tech 🧰
 
 Used in this project (ready today):
+
 - LangChain (core, prompts, tools)
 - `langchain_chroma` (vector store)
 - `langchain_huggingface` (embeddings)
 - Typer + Rich (CLI)
 
 Optional add-ons (not required, nice upgrades later):
+
 - LangGraph (stateful planner/reflection workflows)
 - LiteLLM (switch providers seamlessly: OpenAI/Anthropic/local)
 - FastAPI (server), OpenTelemetry (tracing)
+
+Quick CLI references:
+
+- `/about` – project stack and design goals
+- `/tools` – which tools/components are active (vector store, embeddings, LLM model)
 
 ---
 
@@ -60,6 +68,7 @@ research-agent interactive
 ```
 
 Inside interactive mode:
+
 - `/help` – show commands
 - `/settings` – current config + session info
 - `/history` – recent conversation
@@ -131,6 +140,7 @@ User (CLI)
 ```
 
 Key files:
+
 - `core/agent.py` – the orchestrator (prompt + optional web search injection + friendly errors)
 - `core/memory.py` – conversation turns + vector memory (Chroma + HF)
 - `tools/` – `web_search.py`, `document_processor.py`, `summarizer.py`
